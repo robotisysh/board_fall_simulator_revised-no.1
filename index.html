@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>3D 판자 낙하 속도 시뮬레이터</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial,"Malgun Gothic",sans-serif;background:#eef2f5;color:#17202a;overflow:hidden}
+#app{display:flex;width:100vw;height:100vh}
+#panel{width:330px;min-width:300px;background:#fff;border-right:1px solid #c9d1d9;padding:14px;overflow:auto}
+h1{font-size:20px;margin:0 0 10px}
+h2{font-size:15px;margin:16px 0 8px;border-bottom:1px solid #ddd;padding-bottom:5px}
+label{display:block;font-size:13px;margin:7px 0 3px}
+input,select,button{font-size:14px;border:1px solid #b9c2ca;border-radius:6px;padding:8px;background:#fff}
+input{width:100%}
+button{cursor:pointer;margin:3px 2px 3px 0}
+button:hover{background:#f0f4f7}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+.small{font-size:11px;color:#65727e}
+.value{font-weight:bold}
+#view{position:relative;flex:1;min-width:0}
+#canvas{display:block;width:100%;height:100%;background:#dfeaf1;touch-action:none}
+#status{position:absolute;left:12px;top:12px;background:rgba(255,255,255,.88);padding:9px 11px;border-radius:8px;font-size:12px;line-height:1.6;box-shadow:0 2px 8px #0002}
+#hint{position:absolute;right:12px;top:12px;background:rgba(255,255,255,.8);padding:7px 9px;border-radius:8px;font-size:11px}
+.stat{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+.card{background:#f5f7f9;border-radius:7px;padding:7px}
+.card b{display:block;font-size:15px;margin-top:2px}
+#chart{width:100%;height:150px;background:#101820;border-radius:7px;margin-top:8px}
+.rangeRow{display:flex;gap:7px;align-items:center}
+.rangeRow input[type=range]{flex:1}
+.rangeVal{width:55px;text-align:right;font-size:12px}
+@media(max-width:700px){
+#app{flex-direction:column}
+#panel{width:100%;height:43%;min-height:250px;border-right:0;border-bottom:1px solid #ccc}
+#view{height:57%}
+}
+</style>
+</head>
+<body>
+<div id="app">
+<div id="panel">
+<h1>3D 판자 낙하 시뮬레이터</h1>
+<div class="small">판자 비율은 항상 가로:깊이:높이 = 15:3:20으로 유지돼.</div>
+
+<h2>판자 설정</h2>
+<label>크기 배율 S</label>
+<div class="rangeRow">
+<input id="scale" type="range" min="0.25" max="100" step="0.01" value="1">
+<div class="rangeVal" id="scaleVal">1.00×</div>
+</div>
+<div class="stat">
+<div class="card">가로 W<b id="wOut">15.00</b></div>
+<div class="card">깊이 D<b id="dOut">3.00</b></div>
+<div class="card">높이 H<b id="hOut">20.00</b></div>
+<div class="card">질량<b><span id="massOut">2.00</span> kg</b></div>
+</div>
+
+<label>질량 (kg)</label><input id="mass" type="number" min="0.0000001" step="0.0000001" value="2.0000000">
+<label>공기저항 계수 Cd</label><input id="cd" type="number" min="0" step="0.01" value="0.5">
+<label>공기 밀도 (kg/m³)</label><input id="rho" type="number" min="0" step="0.001" value="1.225">
+<label>회전 감쇠 계수</label><input id="damping" type="number" min="0" step="0.01" value="0.08">
+
+<h2>센서 위치 — b면</h2>
+<div class="small">b면의 좌표계에서 X는 가로, Y는 세로야. Z는 센서 좌표 계산에 사용하지 않아.</div>
+<div class="row">
+<div><label>X 비율 (%)</label><input id="sx" type="number" min="0" max="100" step="0.1" value="50"></div>
+<div><label>Y 비율 (%)</label><input id="sy" type="number" min="0" max="100" step="0.1" value="50"></div>
+</div>
+<div class="stat">
+<div class="card">센서 X<b id="sxOut">7.50</b></div>
+<div class="card">센서 Y<b id="syOut">10.00</b></div>
+</div>
+
+<h2>시뮬레이션</h2>
+<div class="row">
+<div><label>중력 (m/s²)</label><input id="gravity" type="number" min="0" max="100000000000" step="0.01" value="9.81"></div>
+<div><label>초기 각도 (°)</label><input id="angle" type="number" min="0" max="89.9" step="0.1" value="0"></div>
+</div>
+<label>초기 각속도 (rad/s)</label><input id="omega" type="number" step="0.01" value="0">
+<div>
+<button id="start">▶ 쓰러뜨리기</button>
+<button id="pause">Ⅱ 일시정지</button>
+<button id="reset">↻ 초기화</button>
+</div>
+
+<h2>현재 상태</h2>
+<div class="stat">
+<div class="card">시간<b id="timeOut">0.000 s</b></div>
+<div class="card">각도<b id="angleOut">0.00°</b></div>
+<div class="card">각속도<b id="omegaOut">0.000</b></div>
+<div class="card">센서 속도<b id="speedOut">0.000 m/s</b></div>
+<div class="card">원심력<b id="centrifugalOut">0.000 N</b></div>
+<div class="card">공기저항<b id="dragOut">0.000 N</b></div>
+</div>
+
+<h2>통계</h2>
+<div class="stat">
+<div class="card">최대 센서 속도<b id="maxSpeed">0.000 m/s</b></div>
+<div class="card">평균 센서 속도<b id="avgSpeed">0.000 m/s</b></div>
+<div class="card">최대 각속도<b id="maxOmega">0.000</b></div>
+<div class="card">낙하 시간<b id="fallTime">-</b></div>
+</div>
+<canvas id="chart" width="620" height="240"></canvas>
+
+<div class="small" style="margin-top:8px">
+마우스 드래그: 3D 시점 회전 · 휠: 확대/축소<br>
+판자의 큰 두 면 중 넘어지는 방향의 면이 a면, 반대쪽이 b면이야. 센서는 b면에 붙어 있어.
+</div>
+</div>
+
+<div id="view">
+<canvas id="canvas"></canvas>
+<div id="status">상태: 대기 중</div>
+<div id="hint">드래그로 시점 회전 · 휠로 확대/축소</div>
+</div>
+</div>
+
+<script>
+"use strict";
+
+/* =========================
+   기본 유틸리티
+========================= */
+const $ = id => document.getElementById(id);
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const rad=d=>d*Math.PI/180;
+const deg=r=>r*180/Math.PI;
+
+const canvas=$("canvas"), ctx=canvas.getContext("2d");
+const chart=$("chart"), cctx=chart.getContext("2d");
+
+let W=15,D=3,H=20;
+let mass=2, Cd=.5, rho=1.225, damping=.08, g=9.81;
+let angle=0, omega=0, time=0, running=false, paused=false;
+let maxSpeed=0,maxOmega=0,sumSpeed=0,samples=0,fallTime=null;
+let lastFrame=0;
+
+/* 카메라 */
+let camYaw=-0.75, camPitch=0.38, camDist=42;
+let drag=false,lastX=0,lastY=0;
+
+/* 그래프 데이터 */
+let graph=[];
+
+/* =========================
+   설정 읽기
+========================= */
+function readSettings(){
+  const s=parseFloat($("scale").value);
+  W=15*s; D=3*s; H=20*s;
+  mass=Math.max(0.0000001,parseFloat($("mass").value)||2);
+  Cd=Math.max(0,parseFloat($("cd").value)||0);
+  rho=Math.max(0,parseFloat($("rho").value)||0);
+  damping=Math.max(0,parseFloat($("damping").value)||0);
+  g=clamp(parseFloat($("gravity").value)||9.81,0,100000000000);
+
+  $("scaleVal").textContent=s.toFixed(2)+"×";
+  $("wOut").textContent=W.toFixed(2);
+  $("dOut").textContent=D.toFixed(2);
+  $("hOut").textContent=H.toFixed(2);
+  $("massOut").textContent=mass.toFixed(7);
+
+  const sx=clamp(parseFloat($("sx").value)||0,0,100);
+  const sy=clamp(parseFloat($("sy").value)||0,0,100);
+  $("sxOut").textContent=(W*sx/100).toFixed(2);
+  $("syOut").textContent=(H*sy/100).toFixed(2);
+}
+["scale","mass","cd","rho","damping","gravity","sx","sy"].forEach(id=>{
+  $(id).addEventListener("input",()=>{readSettings(); draw();});
+});
+
+/* =========================
+   3D 벡터
+========================= */
+function V(x,y,z){return{x,y,z}}
+function add(a,b){return V(a.x+b.x,a.y+b.y,a.z+b.z)}
+function sub(a,b){return V(a.x-b.x,a.y-b.y,a.z-b.z)}
+function mul(a,k){return V(a.x*k,a.y*k,a.z*k)}
+function cross(a,b){return V(a.y*b.z-a.z*b.y,a.z*b.x-a.x*b.z,a.x*b.y-a.y*b.x)}
+function dot(a,b){return a.x*b.x+a.y*b.y+a.z*b.z}
+function len(a){return Math.hypot(a.x,a.y,a.z)}
+function norm(a){let l=len(a)||1;return mul(a,1/l)}
+
+/* =========================
+   판자 기하
+   회전축: x축 방향의 지표면 위 긴 모서리
+   판자의 초기 세로 방향은 +Y
+   넘어지는 방향은 +Z
+========================= */
+function rotateX(p,a){
+  const c=Math.cos(a),s=Math.sin(a);
+  return V(p.x,p.y*c-p.z*s,p.y*s+p.z*c);
+}
+
+/* 각도 0 = 세워짐.
+   +90° = +Z 방향으로 완전히 넘어짐.
+   회전축은 y=z=0의 x축. */
+function boardPoint(local){
+  return rotateX(local,angle);
+}
+
+function boardCorners(){
+  const x=W/2;
+  const y0=0, y1=H;
+  const z0=0, z1=D;
+  return [
+    boardPoint(V(-x,y0,z0)), boardPoint(V(x,y0,z0)),
+    boardPoint(V(x,y1,z0)), boardPoint(V(-x,y1,z0)),
+    boardPoint(V(-x,y0,z1)), boardPoint(V(x,y0,z1)),
+    boardPoint(V(x,y1,z1)), boardPoint(V(-x,y1,z1))
+  ];
+}
+
+/* 센서:
+   b면 = z=D 면.
+   b면 자체의 x/y 좌표를 사용하고 z는 무시.
+   x,y는 b면의 변을 따라 0~100%로 지정. */
+function sensorLocal(){
+  const sx=clamp(parseFloat($("sx").value)||0,0,100)/100;
+  const sy=clamp(parseFloat($("sy").value)||0,0,100)/100;
+  return V(-W/2 + W*sx, H*sy, D);
+}
+function sensorWorld(){
+  return boardPoint(sensorLocal());
+}
+
+/* =========================
+   물리 모델
+========================= */
+function physicalQuantities(){
+  /* 질량 중심: 회전축에서 H/2 떨어진 점 */
+  const com=boardPoint(V(0,H/2,D/2));
+
+  /* 중력 토크.
+     회전축 x방향이므로 x축 토크 성분만 사용 */
+  const Fg=V(0,-mass*g,0);
+  const rcom=com;
+  const tauG=cross(rcom,Fg).x;
+
+  /* 판자의 회전 관성.
+     회전축이 x축을 따라 있고 직육면체의 높이/깊이 방향이 y/z.
+     Ix = m/12*(H²+D²) */
+  const I=mass*(H*H+D*D)/12;
+
+  /* 공기저항: 판자에 작용하는 대표 면적을 근사.
+     회전 각도에 따라 지표면에서 보이는 큰 면의 투영면적을 사용. */
+  const projectedArea=W*(Math.abs(Math.cos(angle))*H + Math.abs(Math.sin(angle))*D);
+  const sensor=sensorWorld();
+  const rSensor=sensor;
+  const vVec=cross(V(omega,0,0),rSensor);
+  const speed=len(vVec);
+
+  /* 회전하는 판자의 대표 속도를 이용한 공기저항 토크 */
+  const dragF=.5*rho*Cd*projectedArea*speed*speed;
+  const dragTau=-Math.sign(omega||1)*dragF*Math.max(H/2,.001)*0.35;
+
+  /* 감쇠 토크 */
+  const dampTau=-damping*omega;
+
+  const tau=tauG+dragTau+dampTau;
+  const alpha=tau/I;
+
+  /* 원심력의 크기: 센서 위치의 회전축 거리 기준 */
+  const radial=Math.hypot(sensor.y,sensor.z);
+  const centrifugal=mass*omega*omega*radial; // 전체 질량을 대표값으로 표시
+
+  return {I,tauG,dragF,dragTau,dampTau,alpha,speed,vVec,centrifugal,radial};
+}
+
+function step(dt){
+  const q=physicalQuantities();
+  omega+=q.alpha*dt;
+  angle+=omega*dt;
+
+  /* 물리적 한계: 완전히 눕는 순간 정지 */
+  if(angle>=Math.PI/2){
+    angle=Math.PI/2;
+    omega=0;
+    running=false;
+    if(fallTime===null) fallTime=time;
+    $("status").textContent="상태: 판자가 지표면에 닿음";
+  }
+
+  time+=dt;
+  const q2=physicalQuantities();
+  const speed=q2.speed;
+  maxSpeed=Math.max(maxSpeed,speed);
+  maxOmega=Math.max(maxOmega,Math.abs(omega));
+  sumSpeed+=speed;
+  samples++;
+  if(samples%2===0) graph.push({t:time,v:speed,a:angle});
+}
+
+/* =========================
+   3D 투영
+========================= */
+function resize(){
+  const r=canvas.getBoundingClientRect();
+  const dpr=Math.min(devicePixelRatio||1,2);
+  canvas.width=Math.max(1,Math.floor(r.width*dpr));
+  canvas.height=Math.max(1,Math.floor(r.height*dpr));
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+window.addEventListener("resize",resize);
+
+function project(p){
+  /* 카메라 회전 */
+  let q=V(p.x,p.y,p.z);
+
+  const cy=Math.cos(camYaw),sy=Math.sin(camYaw);
+  let x=q.x*cy-q.z*sy;
+  let z=q.x*sy+q.z*cy;
+
+  const cp=Math.cos(camPitch),sp=Math.sin(camPitch);
+  let y=q.y*cp-z*sp;
+  z=q.y*sp+z*cp;
+
+  z+=camDist;
+
+  const scale=Math.min(canvas.clientWidth,canvas.clientHeight)*.72;
+  const f=scale/(z||.001);
+
+  return {
+    x:canvas.clientWidth/2+x*f,
+    y:canvas.clientHeight*.68-y*f,
+    z,
+    f
+  };
+}
+
+function line(a,b){
+  const A=project(a),B=project(b);
+  ctx.beginPath();ctx.moveTo(A.x,A.y);ctx.lineTo(B.x,B.y);ctx.stroke();
+}
+
+function poly(points,fill,stroke="#263238"){
+  const ps=points.map(project);
+  ctx.beginPath();
+  ctx.moveTo(ps[0].x,ps[0].y);
+  for(let i=1;i<ps.length;i++)ctx.lineTo(ps[i].x,ps[i].y);
+  ctx.closePath();
+  if(fill){ctx.fillStyle=fill;ctx.fill();}
+  if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=1;ctx.stroke();}
+}
+
+/* =========================
+   렌더링
+========================= */
+function drawGround(){
+  ctx.strokeStyle="#9eabb5";
+  ctx.lineWidth=1;
+  const size=28, step=2;
+  for(let x=-size;x<=size;x+=step)line(V(x,0,-size),V(x,0,size));
+  for(let z=-size;z<=size;z+=step)line(V(-size,0,z),V(size,0,z));
+
+  /* 축 */
+  ctx.lineWidth=2;
+  line(V(0,0,0),V(5,0,0));
+  line(V(0,0,0),V(0,5,0));
+  line(V(0,0,0),V(0,0,5));
+}
+
+function drawBoard(){
+  const c=boardCorners();
+
+  /* 바닥/측면/큰 면들. 깊이 정렬은 간단한 고정 순서 */
+  poly([c[0],c[1],c[2],c[3]],"rgba(210,150,75,.95)");
+  poly([c[4],c[5],c[6],c[7]],"rgba(225,170,95,.95)");
+  poly([c[0],c[4],c[7],c[3]],"rgba(190,125,55,.95)");
+  poly([c[1],c[5],c[6],c[2]],"rgba(180,115,48,.95)");
+  poly([c[3],c[2],c[6],c[7]],"rgba(235,185,110,.95)");
+
+  /* 회전축 */
+  line(V(-W/2,0,0),V(W/2,0,0));
+
+  /* 센서 */
+  const s=project(sensorWorld());
+  ctx.beginPath();ctx.arc(s.x,s.y,7,0,Math.PI*2);
+  ctx.fillStyle="#e53935";ctx.fill();
+  ctx.strokeStyle="#fff";ctx.lineWidth=2;ctx.stroke();
+}
+
+function drawLabels(){
+  const s=project(sensorWorld());
+  ctx.fillStyle="#17202a";
+  ctx.font="12px Arial";
+  ctx.fillText("센서",s.x+9,s.y-8);
+
+  const axis=project(V(W/2,0,0));
+  ctx.fillText("회전축",axis.x+5,axis.y+15);
+}
+
+function draw(){
+  resize();
+  ctx.clearRect(0,0,canvas.clientWidth,canvas.clientHeight);
+
+  /* 하늘 그라데이션 */
+  const gr=ctx.createLinearGradient(0,0,0,canvas.clientHeight);
+  gr.addColorStop(0,"#d7e9f4");gr.addColorStop(1,"#f4f1e8");
+  ctx.fillStyle=gr;ctx.fillRect(0,0,canvas.clientWidth,canvas.clientHeight);
+
+  drawGround();
+  drawBoard();
+  drawLabels();
+
+  const q=physicalQuantities();
+  $("timeOut").textContent=time.toFixed(3)+" s";
+  $("angleOut").textContent=deg(angle).toFixed(2)+"°";
+  $("omegaOut").textContent=omega.toFixed(3)+" rad/s";
+  $("speedOut").textContent=q.speed.toFixed(3)+" m/s";
+  $("centrifugalOut").textContent=q.centrifugal.toFixed(3)+" N";
+  $("dragOut").textContent=q.dragF.toFixed(3)+" N";
+  $("maxSpeed").textContent=maxSpeed.toFixed(3)+" m/s";
+  $("avgSpeed").textContent=(samples?sumSpeed/samples:0).toFixed(3)+" m/s";
+  $("maxOmega").textContent=maxOmega.toFixed(3)+" rad/s";
+  $("fallTime").textContent=fallTime===null?"-":fallTime.toFixed(3)+" s";
+
+  drawChart();
+}
+
+/* =========================
+   그래프
+========================= */
+function drawChart(){
+  const w=chart.width,h=chart.height;
+  cctx.clearRect(0,0,w,h);
+  cctx.fillStyle="#101820";cctx.fillRect(0,0,w,h);
+
+  cctx.strokeStyle="#3d4b55";cctx.lineWidth=1;
+  for(let i=0;i<=5;i++){
+    const y=20+i*(h-40)/5;
+    cctx.beginPath();cctx.moveTo(35,y);cctx.lineTo(w-10,y);cctx.stroke();
+  }
+
+  cctx.fillStyle="#dce6ec";cctx.font="12px Arial";
+  cctx.fillText("센서 속도 (m/s)",8,14);
+
+  if(graph.length<2)return;
+  const maxT=Math.max(graph[graph.length-1].t,0.1);
+  const maxV=Math.max(0.1,...graph.map(p=>p.v));
+  cctx.strokeStyle="#4fc3f7";cctx.lineWidth=2;
+  cctx.beginPath();
+  graph.forEach((p,i)=>{
+    const x=35+(w-50)*(p.t/maxT);
+    const y=h-20-(h-40)*(p.v/maxV);
+    if(i===0)cctx.moveTo(x,y);else cctx.lineTo(x,y);
+  });
+  cctx.stroke();
+
+  cctx.fillText(maxV.toFixed(2),3,25);
+  cctx.fillText("0",18,h-17);
+}
+
+/* =========================
+   제어
+========================= */
+function reset(){
+  readSettings();
+  angle=rad(parseFloat($("angle").value)||0);
+  omega=parseFloat($("omega").value)||0;
+  time=0;running=false;paused=false;
+  maxSpeed=0;maxOmega=0;sumSpeed=0;samples=0;fallTime=null;graph=[];
+  $("status").textContent="상태: 대기 중";
+  draw();
+}
+$("reset").onclick=reset;
+
+$("start").onclick=()=>{
+  readSettings();
+  if(angle>=Math.PI/2)angle=0;
+  running=true;paused=false;
+  $("status").textContent="상태: 판자 쓰러지는 중";
+};
+
+$("pause").onclick=()=>{
+  if(running){paused=!paused;$("status").textContent=paused?"상태: 일시정지":"상태: 판자 쓰러지는 중";}
+};
+
+/* =========================
+   카메라 조작
+========================= */
+canvas.addEventListener("pointerdown",e=>{
+  drag=true;lastX=e.clientX;lastY=e.clientY;
+  canvas.setPointerCapture(e.pointerId);
+});
+canvas.addEventListener("pointermove",e=>{
+  if(!drag)return;
+  const dx=e.clientX-lastX,dy=e.clientY-lastY;
+  lastX=e.clientX;lastY=e.clientY;
+  camYaw+=dx*.008;
+  camPitch=clamp(camPitch+dy*.008,-1.35,1.35);
+  draw();
+});
+canvas.addEventListener("pointerup",()=>drag=false);
+canvas.addEventListener("pointercancel",()=>drag=false);
+canvas.addEventListener("wheel",e=>{
+  e.preventDefault();
+  camDist=clamp(camDist+e.deltaY*.025,18,90);
+  draw();
+},{passive:false});
+
+/* =========================
+   애니메이션 루프
+========================= */
+function loop(ts){
+  if(!lastFrame)lastFrame=ts;
+  let dt=Math.min((ts-lastFrame)/1000,.033);
+  lastFrame=ts;
+
+  if(running&&!paused){
+    /* 실제 시간에 가까운 작은 물리 시간 간격 */
+    let remain=dt;
+    while(remain>0){
+      const h=Math.min(.008,remain);
+      step(h);
+      remain-=h;
+      if(!running)break;
+    }
+  }
+  draw();
+  requestAnimationFrame(loop);
+}
+
+/* App Inventor에서 JavaScript로 설정을 전달하고 싶을 때 사용할 수 있는 API */
+window.simulator={
+  setScale:s=>{$("scale").value=s;readSettings();draw();},
+  setMass:m=>{$("mass").value=m;readSettings();draw();},
+  setSensor:(x,y)=>{$("sx").value=x;$("sy").value=y;readSettings();draw();},
+  start:()=>$("start").click(),
+  pause:()=>$("pause").click(),
+  reset:()=>reset(),
+  getState:()=>({
+    time,angle:deg(angle),omega,
+    sensorSpeed:physicalQuantities().speed,
+    centrifugal:physicalQuantities().centrifugal,
+    drag:physicalQuantities().dragF
+  })
+};
+
+readSettings();
+reset();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
